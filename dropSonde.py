@@ -80,24 +80,31 @@ class Flight:
 		self.sondeData = pd.concat(self.sondes)
 		self.coreData["TIME"] = self.coreData["TIME"].astype(float) 
 		self.coreData = pd.merge(self.coreData, self.sondeData, on="TIME", how="outer")
+		self.coreData.loc[self.coreData["pres"] == -999.0, "FLAG"] = -1
 		self.coreData = self.coreData.replace(-999.0,np.nan)
+
 	# Extrapolate sonde data to relase point
 	def extrapolate(self):
+		self.functions = []
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[self.coreData["FLAG"]==i]
 			z = np.polyfit(data["TIME"],data["pres"], 2)
+			self.functions.append(z)
 			f = np.poly1d(z)
-			print(dropTime)
-			print(self.coreData[self.coreData["TIME"] == dropTime])
-
+			exp = f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"])
+			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
+			#print(np.average(exp-obs))
 
 	# Graph the data (temporary)
 	def plotData(self):
 		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
 		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
 		
-		for i in self.dropTimes:
-			plt.axvline(i, c = "red")
+		for i, dropTime in enumerate(self.dropTimes):
+			plt.axvline(dropTime, c = "red")
+			f = np.poly1d(self.functions[i])
+			x = self.coreData[self.coreData["FLAG"] == i]
+			plt.plot(x["TIME"], f(x["TIME"]), c = "black")
 		plt.show()
 
 # Get flights where dropsondes were depolyed from 2015-2019
