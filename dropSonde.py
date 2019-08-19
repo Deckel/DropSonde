@@ -29,6 +29,7 @@ class Flight:
 		path = [os.path.join(dirpath, f)
 			for dirpath, dirnames, files in os.walk("/".join(self.filePath.split("/")[:-1]))
 			for f in fnmatch.filter(files, "faam-dropsonde*proc.nc")]
+		
 		# Retrive sonde data and drop times
 		for i, path in enumerate(path):
 			dfSonde = pd.DataFrame(columns = variablesSonde)
@@ -41,6 +42,7 @@ class Flight:
 				dfSonde[j] = var
 			dfSonde["FLAG"] = i
 			self.sondes.append(dfSonde)
+		
 		# Retrive core data
 		global variablesCore
 		path = [os.path.join(dirpath, f)
@@ -58,6 +60,7 @@ class Flight:
 			dfCore[i] = var
 		dfCore = dfCore.rename(columns = {"Time":"TIME"})
 		dfdropTimes = dfdropTimes.rename(columns = {"Time":"TIME"})
+		
 		# Only keep core data around drop time of sonde 
 		for i in self.dropTimes:
 			dfdropTimes = dfdropTimes.append(dfCore[(dfCore["TIME"] >= i-100) & (dfCore["TIME"] <= i+100)], sort = True)
@@ -66,20 +69,33 @@ class Flight:
 		# print("Drop times /UTC after midnight: {}".format(self.dropTimes))
 		# print(self.coreData)
 		# print(self.sondes)
+	
 	# Stamdardize the times by adding the offset (time since drop) to the drop time
 	def standardizeTime(self):
 		for i, sond in enumerate(self.sondes):
 			sond["TIME"] = sond["time_offset"].add(self.dropTimes[i]) 
+	
 	# Merge data into one data frame 
 	def mergeData(self):
 		self.sondeData = pd.concat(self.sondes)
 		self.coreData["TIME"] = self.coreData["TIME"].astype(float) 
 		self.coreData = pd.merge(self.coreData, self.sondeData, on="TIME", how="outer")
-		self.coreData = self.coreData[self.coreData["pres"] != -999.0]
+		self.coreData = self.coreData.replace(-999.0,np.nan)
+	# Extrapolate sonde data to relase point
+	def extrapolate(self):
+		for i, dropTime in enumerate(self.dropTimes):
+			data = self.coreData[self.coreData["FLAG"]==i]
+			z = np.polyfit(data["TIME"],data["pres"], 2)
+			f = np.poly1d(z)
+			print(dropTime)
+			print(self.coreData[self.coreData["TIME"] == dropTime])
+
+
 	# Graph the data (temporary)
 	def plotData(self):
-		plt.plot(self.coreData["TIME"], self.coreData["PS_RVSM"])
+		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
 		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
+		
 		for i in self.dropTimes:
 			plt.axvline(i, c = "red")
 		plt.show()
@@ -94,6 +110,8 @@ def sondeFilePaths():
 			for f in fnmatch.filter(files, "faam-dropsonde*[!raw].nc")]
 	return(fnames)
 
+
+
 #test flight
 flight = Flight("/media/faamarchive/badcMirror/data/2019/c153-mar-13/core_processed/faam-dropsonde_faam_20190313115953_r0_c153_proc.nc")
 
@@ -102,4 +120,5 @@ fnames = sondeFilePaths()
 flight.getData()
 flight.standardizeTime()
 flight.mergeData()
+flight.extrapolate()
 flight.plotData()
