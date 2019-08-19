@@ -17,11 +17,11 @@ import datetime
 variablesCore = ["Time", "PS_RVSM", "ALT_GIN", "IAS_RVSM", "TAT_DI_R", "TAS_RVSM","Q_RVSM"]
 variablesSonde =["time","time_offset","pres","alt","tdry"]
 
-class Sonde:
+class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
 
-	# Get both core and drop sonde data as two data frames
+	# Get both core and drop sonde data as individual data frames
 	def getData(self):
 		self.dropTimes = []
 		self.sondes = []
@@ -29,62 +29,57 @@ class Sonde:
 		path = [os.path.join(dirpath, f)
 			for dirpath, dirnames, files in os.walk("/".join(self.filePath.split("/")[:-1]))
 			for f in fnmatch.filter(files, "faam-dropsonde*proc.nc")]
-		
-		for n, i in enumerate(path):
+		# Retrive sonde data and drop times
+		for i, path in enumerate(path):
 			dfSonde = pd.DataFrame(columns = variablesSonde)
-			fh = Dataset(i, "r")
+			fh = Dataset(path, "r")
 			rawTime = fh.variables["base_time"].string.split(" ")[3]
 			self.dropTimes.append(int(rawTime[6:8]) + 60*( int(rawTime[3:5]) + 60*(int(rawTime[0:2]))))
-			for i in variablesSonde:
-				var = fh.variables[i][:]
+			for j in variablesSonde:
+				var = fh.variables[j][:]
 				var = var.ravel()
-				dfSonde[i] = var
+				dfSonde[j] = var
+			dfSonde["FLAG"] = i
 			self.sondes.append(dfSonde)
-		
-
+		# Retrive core data
 		global variablesCore
 		path = [os.path.join(dirpath, f)
 				for dirpath, dirnames, files in os.walk("/".join(self.filePath.split("/")[:-1]))
 				for f in fnmatch.filter(files, "core_faam*[!1hz].nc")]
-		
 		for i in path:
 			fh = Dataset(i, "r")
-		
 		dfCore = pd.DataFrame(columns = variablesCore)
 		dfdropTimes = pd.DataFrame(columns = variablesCore)
-		
 		for i in variablesCore:
 			var = fh.variables[i][:]
 			var = var.ravel()
 			if i != "Time":
 				var = var[0::32]
 			dfCore[i] = var
-		
 		dfCore = dfCore.rename(columns = {"Time":"TIME"})
 		dfdropTimes = dfdropTimes.rename(columns = {"Time":"TIME"})
-
+		# Only keep core data around drop time of sonde 
 		for i in self.dropTimes:
 			dfdropTimes = dfdropTimes.append(dfCore[(dfCore["TIME"] >= i-100) & (dfCore["TIME"] <= i+100)], sort = True)
 		self.coreData = dfdropTimes
-
 		# print(self.filePath)
 		# print("Drop times /UTC after midnight: {}".format(self.dropTimes))
 		# print(self.coreData)
 		# print(self.sondes)
-
+	# Stamdardize the times by adding the offset (time since drop) to the drop time
 	def standardizeTime(self):
 		for i, sond in enumerate(self.sondes):
 			sond["TIME"] = sond["time_offset"].add(self.dropTimes[i]) 
-
+	# Merge data into one data frame 
 	def mergeData(self):
 		self.sondeData = pd.concat(self.sondes)
 		self.coreData["TIME"] = self.coreData["TIME"].astype(float) 
 		self.coreData = pd.merge(self.coreData, self.sondeData, on="TIME", how="outer")
 		self.coreData = self.coreData[self.coreData["pres"] != -999.0]
-
+	# Graph the data (temporary)
 	def plotData(self):
 		plt.plot(self.coreData["TIME"], self.coreData["PS_RVSM"])
-		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5)
+		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
 		for i in self.dropTimes:
 			plt.axvline(i, c = "red")
 		plt.show()
@@ -99,19 +94,12 @@ def sondeFilePaths():
 			for f in fnmatch.filter(files, "faam-dropsonde*[!raw].nc")]
 	return(fnames)
 
+#test flight
+flight = Flight("/media/faamarchive/badcMirror/data/2019/c153-mar-13/core_processed/faam-dropsonde_faam_20190313115953_r0_c153_proc.nc")
+
+# Main
 fnames = sondeFilePaths()
-
-
-sonde = Sonde("/media/faamarchive/badcMirror/data/2019/c153-mar-13/core_processed/faam-dropsonde_faam_20190313115953_r0_c153_proc.nc")
-sonde.getData()
-sonde.standardizeTime()
-sonde.mergeData()
-sonde.plotData()
-
-#print(sonde.filePath)
-#print(sonde.dropTimes)
-#print(sonde.coreData)
-# drop.getcoreData()
-# print(drop.coreFiles)
-# print(drop.dropSondeFiles)
-
+flight.getData()
+flight.standardizeTime()
+flight.mergeData()
+flight.plotData()
