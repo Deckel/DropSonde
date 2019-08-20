@@ -20,18 +20,18 @@ variablesSonde =["time","time_offset","pres","alt","tdry"]
 class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
+		print(self.filePath)
 	# Get both core and drop sonde data as individual data frames
 	def getData(self):
 		self.dropTimes = []
 		self.sondes = []
 		global variablesSonde
 		path = [os.path.join(dirpath, f)
-			for dirpath, dirnames, files in os.walk("/".join(self.filePath.split("/")[:-1]))
+			for dirpath, dirnames, files in os.walk(self.filePath)
 			for f in fnmatch.filter(files, "faam-dropsonde*proc.nc")]
 		
 		# Retrive sonde data and drop times
 		for i, path in enumerate(path):
-			print(path)
 			dfSonde = pd.DataFrame(columns = variablesSonde)
 			fh = Dataset(path, "r")
 			rawTime = fh.variables["base_time"].string.split(" ")[3]
@@ -46,7 +46,7 @@ class Flight:
 		# Retrive core data
 		global variablesCore
 		path = [os.path.join(dirpath, f)
-				for dirpath, dirnames, files in os.walk("/".join(self.filePath.split("/")[:-1]))
+				for dirpath, dirnames, files in os.walk(self.filePath)
 				for f in fnmatch.filter(files, "core_faam*[!1hz].nc")]
 		for i in path:
 			fh = Dataset(i, "r")
@@ -85,7 +85,6 @@ class Flight:
 
 	# Extrapolate sonde data to relase point
 	def extrapolate(self):
-		print("WHAT IS HAPPENIGN?")
 		self.functions = []
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
