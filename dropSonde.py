@@ -20,7 +20,6 @@ variablesSonde =["time","time_offset","pres","alt","tdry"]
 class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
-
 	# Get both core and drop sonde data as individual data frames
 	def getData(self):
 		self.dropTimes = []
@@ -32,6 +31,7 @@ class Flight:
 		
 		# Retrive sonde data and drop times
 		for i, path in enumerate(path):
+			print(path)
 			dfSonde = pd.DataFrame(columns = variablesSonde)
 			fh = Dataset(path, "r")
 			rawTime = fh.variables["base_time"].string.split(" ")[3]
@@ -65,8 +65,7 @@ class Flight:
 		for i in self.dropTimes:
 			dfdropTimes = dfdropTimes.append(dfCore[(dfCore["TIME"] >= i-100) & (dfCore["TIME"] <= i+100)], sort = True)
 		self.coreData = dfdropTimes
-		# print(self.filePath)
-		# print("Drop times /UTC after midnight: {}".format(self.dropTimes))
+		#print("Drop times /UTC after midnight: {}".format(self.dropTimes))
 		# print(self.coreData)
 		# print(self.sondes)
 	
@@ -82,18 +81,22 @@ class Flight:
 		self.coreData = pd.merge(self.coreData, self.sondeData, on="TIME", how="outer")
 		self.coreData.loc[self.coreData["pres"] == -999.0, "FLAG"] = -1
 		self.coreData = self.coreData.replace(-999.0,np.nan)
+		#self.coreData.to_csv("Data/coreData")
 
 	# Extrapolate sonde data to relase point
 	def extrapolate(self):
+		print("WHAT IS HAPPENIGN?")
 		self.functions = []
 		for i, dropTime in enumerate(self.dropTimes):
-			data = self.coreData[self.coreData["FLAG"]==i]
+			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
+			data.to_csv("Data/DataSet{}".format(i))
 			z = np.polyfit(data["TIME"],data["pres"], 2)
 			self.functions.append(z)
 			f = np.poly1d(z)
 			exp = f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"])
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-			#print(np.average(exp-obs))
+			error = error.append(exp-obs)
+			alt = np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])
 
 	# Graph the data (temporary)
 	def plotData(self):
@@ -103,29 +106,11 @@ class Flight:
 		for i, dropTime in enumerate(self.dropTimes):
 			plt.axvline(dropTime, c = "red")
 			f = np.poly1d(self.functions[i])
-			x = self.coreData[self.coreData["FLAG"] == i]
+			x = self.coreData[self.coreData["FLAG"] == i].sort_values("TIME")
+			xExtrapol = self.coreData[(self.coreData["TIME"] >= dropTime - 50) & (self.coreData["TIME"] <= dropTime + 100)].sort_values("TIME")
+			plt.plot(xExtrapol["TIME"], f(xExtrapol["TIME"]), c="black")
 			plt.plot(x["TIME"], f(x["TIME"]), c = "black")
 		plt.show()
 
-# Get flights where dropsondes were depolyed from 2015-2019
-def sondeFilePaths():
-	fnames = []
-	for i in range(5,10):
-		path = "/media/faamarchive/badcMirror/data/201{}/".format(i)
-		fnames += [os.path.join(dirpath, f)
-			for dirpath, dirnames, files in os.walk(path)
-			for f in fnmatch.filter(files, "faam-dropsonde*[!raw].nc")]
-	return(fnames)
 
 
-
-#test flight
-flight = Flight("/media/faamarchive/badcMirror/data/2019/c153-mar-13/core_processed/faam-dropsonde_faam_20190313115953_r0_c153_proc.nc")
-
-# Main
-fnames = sondeFilePaths()
-flight.getData()
-flight.standardizeTime()
-flight.mergeData()
-flight.extrapolate()
-flight.plotData()
