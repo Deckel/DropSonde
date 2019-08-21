@@ -20,16 +20,44 @@ variablesSonde =["time","time_offset","pres","alt","tdry"]
 class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
+		self.functions = []
+		self.errorData = pd.DataFrame(columns=["subError","fullError","Altitude","Pressure"])
 		print(self.filePath)
+
 	# Get both core and drop sonde data as individual data frames
 	def getData(self):
 		self.dropTimes = []
 		self.sondes = []
 		global variablesSonde
+
 		path = [os.path.join(dirpath, f)
 			for dirpath, dirnames, files in os.walk(self.filePath)
 			for f in fnmatch.filter(files, "faam-dropsonde*proc.nc")]
 		
+	
+		rev = 0
+		appended = 1
+		timeStamps = []
+		pathFinal = []
+		while appended > 0:
+			appended = 0
+			for i in path:
+				#Check if i has revision number and if its not in timeStamps
+				if("r{}".format(rev) in i) and i.split("_")[3] not in timeStamps: 
+					pathFinal.append(i)
+					timeStamps.append(i.split("_")[3])
+					appended += 1
+				#If it does have revision number but is in timeStamps
+				elif("r{}".format(rev) in i):
+					#Loop over time stamps and replace file in pathFianl
+					for j in range(len(timeStamps)):
+						if i.split("_")[3] == timeStamps[j]:
+							pathFinal[j] = i
+							appended += 1
+			rev+= 1
+
+
+		path = pathFinal
 		# Retrive sonde data and drop times
 		for i, path in enumerate(path):
 			dfSonde = pd.DataFrame(columns = variablesSonde)
@@ -42,6 +70,7 @@ class Flight:
 				dfSonde[j] = var
 			dfSonde["FLAG"] = i
 			self.sondes.append(dfSonde)
+
 		
 		# Retrive core data
 		global variablesCore
@@ -65,9 +94,7 @@ class Flight:
 		for i in self.dropTimes:
 			dfdropTimes = dfdropTimes.append(dfCore[(dfCore["TIME"] >= i-100) & (dfCore["TIME"] <= i+100)], sort = True)
 		self.coreData = dfdropTimes
-		#print("Drop times /UTC after midnight: {}".format(self.dropTimes))
-		# print(self.coreData)
-		# print(self.sondes)
+
 	
 	# Stamdardize the times by adding the offset (time since drop) to the drop time
 	def standardizeTime(self):
@@ -81,35 +108,56 @@ class Flight:
 		self.coreData = pd.merge(self.coreData, self.sondeData, on="TIME", how="outer")
 		self.coreData.loc[self.coreData["pres"] == -999.0, "FLAG"] = -1
 		self.coreData = self.coreData.replace(-999.0,np.nan)
-		#self.coreData.to_csv("Data/coreData")
+		self.coreData = self.coreData.drop_duplicates()
+		self.coreData.to_csv("coreData")
 
-	# Extrapolate sonde data to relase point
-	def extrapolate(self):
-		self.functions = []
+	# Extrapolate sonde data to relase point using first 200 seconds of data
+	def subExtrapolate(self):
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
-			data.to_csv("Data/DataSet{}".format(i))
 			z = np.polyfit(data["TIME"],data["pres"], 2)
 			self.functions.append(z)
 			f = np.poly1d(z)
-			exp = f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"])
+			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-			error = error.append(exp-obs)
-			alt = np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])
+			self.errorData = self.errorData.append({"subError":exp-obs,
+													"Altitude":np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]),
+													"Pressure":np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"]),
+													"flight":self.filePath.split("/")[6][0:4],
+													"year":self.filePath.split("/")[5]
+													}, ignore_index = True)
+	
+	# Extrapolate sonde data using to release point using entire dataset		
+	def fullExtrapolate(self):
+		for i, dropTime in enumerate(self.dropTimes):
+			data = self.coreData[(self.coreData["FLAG"] == i)].sort_values("TIME")
+			z = np.polyfit(data["TIME"],data["pres"], 2)
+			self.functions.append(z)
+			f = np.poly1d(z)
+			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
+			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
+			self.errorData["fullError"] = exp-obs
+
 
 	# Graph the data (temporary)
 	def plotData(self):
 		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
 		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
-		
+		#print(self.dropTimes)
 		for i, dropTime in enumerate(self.dropTimes):
 			plt.axvline(dropTime, c = "red")
 			f = np.poly1d(self.functions[i])
-			x = self.coreData[self.coreData["FLAG"] == i].sort_values("TIME")
+			x = self.coreData[self.coreData["FLAG"] == i]
+			x = x.sort_values(by = "TIME")
+			
 			xExtrapol = self.coreData[(self.coreData["TIME"] >= dropTime - 50) & (self.coreData["TIME"] <= dropTime + 100)].sort_values("TIME")
+			xExtrapol["f"] = f(xExtrapol["TIME"])
+			xExtrapol =  xExtrapol.drop_duplicates("TIME")
+			#print(i, dropTime)
+
 			plt.plot(xExtrapol["TIME"], f(xExtrapol["TIME"]), c="black")
-			plt.plot(x["TIME"], f(x["TIME"]), c = "black")
-		plt.show()
+			#plt.plot(x["TIME"], f(x["TIME"]), c = "black")
+		#plt.show()
 
 
 

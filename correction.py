@@ -22,22 +22,33 @@ def sondeFilePaths():
 		fnames += [os.path.join(dirpath, f)
 			for dirpath, dirnames, files in os.walk(path)
 			for f in fnmatch.filter(files, "faam-dropsonde*[!raw].nc")]
+	for i in range(len(fnames)):
+		fnames[i] = "/".join(fnames[i].split("/")[:-1])
+	fnames = np.unique(fnames)
 	return(fnames)
-
-
 def processing(flight):
 	flight.getData()
 	flight.standardizeTime()
 	flight.mergeData()
-	flight.extrapolate()
-
-
-errorData = pd.DataFrame(columns = ["error", "ALT_GIN"])
+	flight.subExtrapolate()
+	flight.fullExtrapolate()
 
 # Main
+errorData = pd.DataFrame()
+limit = 0
 for i in sondeFilePaths():
+	limit += 1
+	if limit > 50:
+		break
 	try:
 		flight = Flight(i)
 		processing(flight)
-	except:
-		pass
+		errorData = errorData.append(flight.errorData)
+	except Exception as e:
+		print(e)
+		pass	
+
+print(errorData.reset_index(drop=True))
+plt.scatter(errorData["Altitude"],errorData["subError"], c = "Blue")
+plt.scatter(errorData["Altitude"],errorData["fullError"], c = "Red")
+plt.show()
