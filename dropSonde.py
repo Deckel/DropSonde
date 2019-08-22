@@ -2,6 +2,7 @@ import numpy as np
 from netCDF4 import Dataset
 import scipy
 from scipy import stats
+from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 import os
@@ -16,6 +17,16 @@ import datetime
 # Globals
 variablesCore = ["Time", "PS_RVSM", "ALT_GIN", "IAS_RVSM", "TAT_DI_R", "TAS_RVSM","Q_RVSM"]
 variablesSonde =["time","time_offset","pres","alt","tdry"]
+
+
+# def func(x,a,b,c,d):
+# 		return a * ((b * (1/c+x)) **d)
+
+# def func(x,a):
+# 		return -a*x
+
+def func(x,a,b,c):
+	return a * np.exp(-b * x) + c
 
 class Flight:
 	def __init__(self, filePath):
@@ -111,7 +122,7 @@ class Flight:
 		self.coreData = self.coreData.drop_duplicates()
 		self.coreData.to_csv("coreData")
 
-	# Extrapolate sonde data to relase point using first 200 seconds of data
+	# Extrapolate sonde data to relase point using first 200 seconds of data 
 	def subExtrapolate(self):
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
@@ -131,19 +142,31 @@ class Flight:
 	def fullExtrapolate(self):
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i)].sort_values("TIME")
-			z = np.polyfit(data["TIME"],data["pres"], 2)
-			self.functions.append(z)
-			f = np.poly1d(z)
+			self.functions.append(np.polyfit(data["TIME"],data["pres"], 2))
+			f = np.poly1d(np.polyfit(data["TIME"],data["pres"], 2))
 			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
 			self.errorData["fullError"] = exp-obs
 
+	def altitudeExtrapolate(self):
+		self.functions = []
+		for i, dropTime in enumerate(self.dropTimes):
+			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt")
+			popt, pcov = curve_fit(func, data["alt"].values, data["pres"].values)
+			self.functions.append(popt)
+			exp = np.average(func(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"], *popt))
+			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
+			error = exp - obs
+			if error < 10 and error >-10:
+				self.errorData["altError"] = error
+			else:
+				self.errorData["altError"] = np.nan
+
 
 	# Graph the data (temporary)
-	def plotData(self):
+	def plotDataTime(self):
 		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
 		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
-		#print(self.dropTimes)
 		for i, dropTime in enumerate(self.dropTimes):
 			plt.axvline(dropTime, c = "red")
 			f = np.poly1d(self.functions[i])
@@ -153,11 +176,26 @@ class Flight:
 			xExtrapol = self.coreData[(self.coreData["TIME"] >= dropTime - 50) & (self.coreData["TIME"] <= dropTime + 100)].sort_values("TIME")
 			xExtrapol["f"] = f(xExtrapol["TIME"])
 			xExtrapol =  xExtrapol.drop_duplicates("TIME")
-			#print(i, dropTime)
 
 			plt.plot(xExtrapol["TIME"], f(xExtrapol["TIME"]), c="black")
 			#plt.plot(x["TIME"], f(x["TIME"]), c = "black")
-		#plt.show()
+		plt.show()
 
+	def plotDataAlt(self):
+		for i, dropTime in enumerate(self.dropTimes):
+			popt = self.functions[i]			
+			x = self.coreData[self.coreData["FLAG"] == i]
+			x = x.sort_values(by = "alt")
 
+			# print(x["alt"].reset_index(drop=True))
+			# xExtrapol = np.arange(x["alt"][-1],self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"],1)
+			
+
+			plt.scatter(x["alt"], x["pres"],s = 1.5, alpha = 0.5)
+			plt.plot(x["alt"], func(x["alt"], *popt))
+
+			#plt.plot(xExtrapol, func(xExtrapol), c="Green")
+
+			plt.axvline(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))
+		plt.show()
 
