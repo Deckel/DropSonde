@@ -32,9 +32,9 @@ def processing(flight):
 	flight.mergeData()
 	flight.subExtrapolate()
 	flight.fullExtrapolate()
-	flight.altitudeExtrapolate()
+	#flight.altitudeExtrapolate()
 	#flight.plotDataTime()
-	flight.plotDataAlt()
+	#flight.plotDataAlt()
 
 # Main
 
@@ -42,7 +42,7 @@ errorData = pd.DataFrame()
 limit = 0
 for i in sondeFilePaths():
 	limit += 1
-	if limit > 5:
+	if limit > 10:
 		break
 	try:
 		flight = Flight(i)
@@ -57,7 +57,7 @@ fig, ax = plt.subplots()
 
 plt.scatter(errorData["Altitude"],errorData["subError"], c = "Blue", label = "Sub-sample Temporal Extrapolation")
 sc = plt.scatter(errorData["Altitude"],errorData["fullError"], c = "Red", label= "Full Temporal Extrapolation")
-plt.scatter(errorData["Altitude"],errorData["altError"], c = "Green", label ="Pressure-Altitude Extrapolation")
+#plt.scatter(errorData["Altitude"],errorData["altError"], c = "Green", label ="Pressure-Altitude Extrapolation")
 #ax.set_ylabel("Error /hPa Expected - Observed")
 #ax.set_xlabel("Altitude /m")
 #ax.grid(True)

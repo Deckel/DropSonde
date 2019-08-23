@@ -32,7 +32,7 @@ class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
 		self.functions = []
-		self.errorData = pd.DataFrame(columns=["subError","fullError","Altitude","Pressure"])
+		self.errorData = pd.DataFrame(columns=["subError","fullError","altitude","pressure"])
 		print(self.filePath)
 
 	# Get both core and drop sonde data as individual data frames
@@ -124,22 +124,28 @@ class Flight:
 
 	# Extrapolate sonde data to relase point using first 200 seconds of data 
 	def subExtrapolate(self):
+		self.functionsSubExrapolation = []
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
-			z = np.polyfit(data["TIME"],data["pres"], 2)
-			self.functions.append(z)
+			# Save list of functions derrived
+			self.functionsSubExrapolation.append(np.polyfit(data["TIME"],data["pres"], 2))
+			
+			# Find expected and observed
 			f = np.poly1d(z)
 			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-			self.errorData = self.errorData.append({"subError":exp-obs,
-													"Altitude":np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]),
-													"Pressure":np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"]),
-													"flight":self.filePath.split("/")[6][0:4],
-													"year":self.filePath.split("/")[5]
-													}, ignore_index = True)
+			
+			# update data frame
+			self.errorData["subError"] = exp-obs
+			self.errorData["altitude"] = np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])
+			self.errorData["pressure"] = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
+			self.errorData["flight"] = self.filePath.split("/")[6][0:4]
+			self.errorData["year"] = :self.filePath.split("/")[5]
+			self.errorData = self.errorData.reset_index(drop = True)
 	
 	# Extrapolate sonde data using to release point using entire dataset		
 	def fullExtrapolate(self):
+		self.functions = []
 		for i, dropTime in enumerate(self.dropTimes):
 			data = self.coreData[(self.coreData["FLAG"] == i)].sort_values("TIME")
 			self.functions.append(np.polyfit(data["TIME"],data["pres"], 2))
