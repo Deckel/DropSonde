@@ -180,9 +180,11 @@ class Flight:
 			else:
 				self.altErrors = np.append(self.altErrors,np.nan)
 
+	# Calculate indicated mach number
 	def calc_mach(self):
 		self.coreData['MACH'] = self.coreData['IAS_RVSM'] / (340.294 * np.sqrt(self.coreData['PS_RVSM'] / 1013.25))
 
+	# Collect and generate the data set
 	def generateDataSet(self):
 		for i, dropTime in enumerate(self.dropTimes):
 			#print(np.average(self.coreData[self.coreData["TIME"] == dropTime]["MACH"]))
@@ -197,7 +199,8 @@ class Flight:
 				"flight"   :self.filePath.split("/")[6][0:4],
 				"year"     :self.filePath.split("/")[5]}, ignore_index = True)
 			self.errorData = self.errorData.reset_index(drop = True)
-	# Graph the data (temporary)
+	
+	# Graph pressure error as a fucntion of time
 	def plotDataTime(self):
 		# Scatter flight pressure and dropsonde pressure as a function of time
 		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
@@ -215,6 +218,7 @@ class Flight:
 			plt.plot(extrapolationData["TIME"], extrapolationData["F(x)"], c="black")
 		plt.show()
 
+	# Graph pressure error as a fucntion of altitude
 	def plotDataAlt(self):
 		plt.scatter(self.coreData["alt"], self.coreData["pres"], s = 1.5, alpha = 0.5)
 		for i, dropTime in enumerate(self.dropTimes):

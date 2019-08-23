@@ -64,7 +64,7 @@ errorData = pd.DataFrame()
 limit = 0
 for i in sondeFilePaths():
 	limit += 1
-	if limit > 10000:
+	if limit > 50000000:
 		break
 	try:
 		flight = Flight(i)
@@ -76,6 +76,7 @@ for i in sondeFilePaths():
 
 
 print(errorData)
+errorData.to_csv("errorData")
 
 fig, ax = plt.subplots()
 
