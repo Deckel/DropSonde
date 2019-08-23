@@ -26,43 +26,6 @@ def sondeFilePaths():
 		fnames[i] = "/".join(fnames[i].split("/")[:-1])
 	fnames = np.unique(fnames)
 	return(fnames)
-def processing(flight):
-	flight.getData()
-	flight.standardizeTime()
-	flight.mergeData()
-	flight.subExtrapolate()
-	flight.fullExtrapolate()
-	#flight.altitudeExtrapolate()
-	#flight.plotDataTime()
-	#flight.plotDataAlt()
-
-# Main
-
-errorData = pd.DataFrame()
-limit = 0
-for i in sondeFilePaths():
-	limit += 1
-	if limit > 10:
-		break
-	try:
-		flight = Flight(i)
-		processing(flight)
-		errorData = errorData.append(flight.errorData)
-	except Exception as e:
-		print(e)
-		pass	
-errorData = errorData.reset_index(drop=True)
-
-fig, ax = plt.subplots()
-
-plt.scatter(errorData["Altitude"],errorData["subError"], c = "Blue", label = "Sub-sample Temporal Extrapolation")
-sc = plt.scatter(errorData["Altitude"],errorData["fullError"], c = "Red", label= "Full Temporal Extrapolation")
-#plt.scatter(errorData["Altitude"],errorData["altError"], c = "Green", label ="Pressure-Altitude Extrapolation")
-#ax.set_ylabel("Error /hPa Expected - Observed")
-#ax.set_xlabel("Altitude /m")
-#ax.grid(True)
-annot = ax.annotate("", xy=(0,0), xytext=(20,20), textcoords="offset points")
-annot.set_visible(False)
 
 def update_annot(ind):
 	pos = sc.get_offsets()[ind["ind"][0]]
@@ -84,7 +47,50 @@ def hover(event):
 				annot.set_visible(False)
 				fig.canvas.draw_idle()
 
+def processing(flight):
+	flight.getData()
+	flight.standardizeTime()
+	flight.mergeData()
+	flight.calc_mach()
+	flight.subExtrapolate()
+	flight.fullExtrapolate()
+	flight.altitudeExtrapolate()
+	#flight.plotDataTime()
+	#flight.plotDataAlt()
+	flight.generateDataSet()
+	
+# Main
+errorData = pd.DataFrame()
+limit = 0
+for i in sondeFilePaths():
+	limit += 1
+	if limit > 10000:
+		break
+	try:
+		flight = Flight(i)
+		processing(flight)
+		errorData = errorData.append(flight.errorData)
+	except Exception as e:
+		print(e)
+		pass	
+
+
+print(errorData)
+
+fig, ax = plt.subplots()
+
+plt.scatter(errorData["mach"],errorData["subError"]/errorData["dpressure"], c = "Blue", label = "Sub-sample Temporal Extrapolation")
+sc = plt.scatter(errorData["mach"],errorData["fullError"]/errorData["dpressure"], c = "Red", label= "Full Temporal Extrapolation")
+plt.scatter(errorData["mach"],errorData["altError"]/errorData["dpressure"], c = "Green", label ="Pressure-Altitude Extrapolation")
+ax.set_ylabel("Cpi PS_RVSM-P/Q_RVSM []")
+ax.set_xlabel("Indicated Mach number []")
+ax.grid(True)
+ax.legend(loc = "upper left")
+
 # for i in errorData:
 # 	plt.annotate(errorData["flight"], (errorData["Altitude"],errorData["subError"]))
+
+annot = ax.annotate("", xy=(0,0), xytext=(20,20), textcoords="offset points")
+annot.set_visible(False)
 fig.canvas.mpl_connect("motion_notify_event", hover)
 plt.show()
