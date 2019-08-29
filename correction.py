@@ -1,16 +1,11 @@
 import numpy as np
 from netCDF4 import Dataset
 import scipy
-from scipy import stats
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import axes3d
 import os
 import glob
 import fnmatch
-import math
 import pandas as pd
-import pdb
-import time
 from dropSonde import Flight
 
 # Get flights where dropsondes were depolyed from 2015-2019
@@ -48,13 +43,14 @@ def plotData(errorData):
 	ax.set_ylabel("Cpi PS_RVSM-P/Q_RVSM []")
 	ax.set_xlabel("Indicated Mach number []")
 	ax.grid(True)
-	ax.legend(loc = "upper left")
+	for i, txt in enumerate(errorData["flight"]):
+		ax.annotate(txt, (errorData.iloc[i]["mach"],errorData.iloc[i]["CPI"]))
 	plt.show()
 
 # Main
 def main():
 	errorData = pd.DataFrame()
-	limit = 1000
+	limit = 5
 	for i, filePath in enumerate(sondeFilePaths()):
 		if limit > i:
 			try:
@@ -69,7 +65,6 @@ def main():
 	errorData = errorData[errorData["mach"] > 0.45]
 	errorData.to_csv("dropsonde.csv")
 	return(errorData)
-
 
 plotData(main())
 
