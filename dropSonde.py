@@ -18,23 +18,39 @@ warnings.filterwarnings("ignore")
 
 # Globals
 variablesCore = ["Time", "PS_RVSM", "ALT_GIN", "IAS_RVSM", "TAT_DI_R", "TAS_RVSM","Q_RVSM"]
-variablesSonde =["time","time_offset","pres","alt","tdry"]
+variablesSonde = ["time","time_offset","pres","alt","tdry"]
+index0 = -1
 
 
 # def func(x,a,b,c,d):
 # 		return a * ((b * (1/c+x)) **d)
 
-# def func(x,a):
-# 		return -a*x
 
-def func(x,a,b,c):
-	return a * np.exp(-b * x) + c
+
+
+def func(h):
+	global P0
+	global H0
+	global T0
+
+	# h0 = 0.0
+	# T0 = 288.15
+	# P0 = 1013.2500
+
+	L0 = -0.0065
+	go = 9.80665
+	M = 0.0289644
+	R = 8.31432	
+	
+	
+	# Calulate pressure from standard atmosphere
+	return(P0*(T0/ (T0 + L0 * (h - H0)))**(go * M / (R * L0)))
 
 class Flight:
 	def __init__(self, filePath):
 		self.filePath = filePath
 		self.functions = []
-		self.errorData = pd.DataFrame(columns=["subError","fullError","altError","altitude","pressure","year","flight"])
+		self.errorData = pd.DataFrame(columns=["error","altitude","pressure","year","flight"])
 		print(self.filePath)
 
 	# Get both core and drop sonde data as individual data frames
@@ -48,7 +64,6 @@ class Flight:
 			for dirpath, dirnames, files in os.walk(self.filePath)
 			for f in fnmatch.filter(files, "faam-dropsonde*proc.nc")]
 		
-	
 		rev = 0
 		appended = 1
 		timeStamps = []
@@ -125,60 +140,29 @@ class Flight:
 		self.coreData = self.coreData.drop_duplicates()
 		self.coreData.to_csv("coreData")
 
-	# Extrapolate sonde data to relase point using first 200 seconds of data 
-	def subExtrapolate(self):
-		self.functionsSub = []
-		self.subErrors = np.array([])
-		for i, dropTime in enumerate(self.dropTimes):
-			data = self.coreData[(self.coreData["FLAG"] == i) & (self.coreData["TIME"] <= dropTime + 200)].sort_values("TIME")
-			# Save a list of derrived functions
-			self.functionsSub.append(np.polyfit(data["TIME"],data["pres"], 2))
-			
-			# Find expected and observed
-			f = np.poly1d(np.polyfit(data["TIME"],data["pres"], 2))
-			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
-			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-			
-			# Update data frame
-			self.subErrors = np.append(self.subErrors, exp-obs)
-														
-	# Extrapolate sonde data using to release point using entire dataset		
-	def fullExtrapolate(self):
-		self.functionsFull = []
-		self.fullErrors = np.array([])
-		for i, dropTime in enumerate(self.dropTimes):
-			data = self.coreData[(self.coreData["FLAG"] == i)].sort_values("TIME")
-			# Save a list of derrived functions
-			self.functionsFull.append(np.polyfit(data["TIME"],data["pres"], 2))
-			
-			# Find expected and observed
-			f = np.poly1d(np.polyfit(data["TIME"],data["pres"], 2))
-			exp = np.average(f(self.coreData[self.coreData["TIME"] == dropTime]["TIME"]))
-			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
 
-			# Update data frame
-			self.fullErrors = np.append(self.fullErrors,exp-obs) 
-
-	# Extrapolate sonde data using pressure altitude curve 
-	def altitudeExtrapolate(self):
+	def extrapolate(self):
 		self.functionsAlt = []
-		self.altErrors = np.array([])
+		self.errors = np.array([])
+		global index0
+		global P0
+		global H0
+		global T0
+		
 		for i, dropTime in enumerate(self.dropTimes):
-			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt")
-			
-			# Save a list of derrived functions
-			popt, pcov = curve_fit(func, data["alt"].values, data["pres"].values)
-			self.functionsAlt.append(popt)
-			
-			# Find expected and observed
-			exp = np.average(func(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"], *popt))
+			# Get data set
+			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt").reset_index(drop=True)
+			# Remove weird data point (maybe find true fix later)
+			data = data[0:len(data)-1]
+			# Get inital values for ISA curve
+			P0 = data.iloc[index0]["pres"] #hPa
+			H0 = data.iloc[index0]["alt"] #m
+			T0 = data.iloc[index0]["tdry"] + 273.15 #K
+			#Find expected and observed
+			exp = func(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-						
-			# If error is anomolous return NaN
-			if (exp-obs) < 10 and (exp-obs) >-10:
-				self.altErrors = np.append(self.altErrors,exp-obs)
-			else:
-				self.altErrors = np.append(self.altErrors,np.nan)
+
+			self.errors = np.append(self.errors, obs-exp)
 
 	# Calculate indicated mach number
 	def calc_mach(self):
@@ -189,9 +173,7 @@ class Flight:
 		for i, dropTime in enumerate(self.dropTimes):
 			#print(np.average(self.coreData[self.coreData["TIME"] == dropTime]["MACH"]))
 			self.errorData = self.errorData.append(
-				{"subError":self.subErrors[i],
-				"fullError":self.fullErrors[i],
-				"altError" :self.altErrors[i],
+				{"error" :self.errors[i],
 				"altitude" :np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]),
 				"pressure" :np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"]),
 				"mach"     :np.average(self.coreData[self.coreData["TIME"] == dropTime]["MACH"]),
@@ -200,37 +182,34 @@ class Flight:
 				"year"     :self.filePath.split("/")[5]}, ignore_index = True)
 			self.errorData = self.errorData.reset_index(drop = True)
 	
-	# Graph pressure error as a fucntion of time
-	def plotDataTime(self):
-		# Scatter flight pressure and dropsonde pressure as a function of time
-		plt.scatter(self.coreData["TIME"], self.coreData["PS_RVSM"], s=0.5)
-		plt.scatter(self.coreData["TIME"], self.coreData["pres"], s=0.5, c = self.coreData["FLAG"])
-		# For all dropTimes get fit and extrapolate a line plot from the point of release to first point of data recording
-		for i, dropTime in enumerate(self.dropTimes):
-			# Initial drop
-			plt.axvline(dropTime, c = "red", alpha=0.5)
-			# Get data
-			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "TIME")
-			f = np.poly1d(self.functionsFull[i])
-			# Plot Data
-			extrapolationData = self.coreData[(self.coreData["TIME"] >= dropTime - 50) & (self.coreData["TIME"] <= dropTime + 100)].sort_values("TIME")
-			extrapolationData["F(x)"] = f(extrapolationData["TIME"])
-			plt.plot(extrapolationData["TIME"], extrapolationData["F(x)"], c="black")
-		plt.show()
 
 	# Graph pressure error as a fucntion of altitude
 	def plotDataAlt(self):
-		plt.scatter(self.coreData["alt"], self.coreData["pres"], s = 1.5, alpha = 0.5)
+		global index0
+		
 		for i, dropTime in enumerate(self.dropTimes):
+			plt.cla()
 			# Initital pressure at drop
 			plt.axvline(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]), c = "red")
 			plt.axhline(np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"]), c = "red", alpha = 0.5)
 
 			# Get data
 			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt")
-			popt = self.functionsAlt[i]
+			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt").reset_index(drop=True)
+			# Remove weird data point (maybe find true fix later)
+			data = data[0:len(data)-1]
+			data = data[index0:len(data)]
+
+			P0 = data.iloc[0]["pres"] #hPa
+			H0 = data.iloc[0]["alt"] #m
+			T0 = data.iloc[0]["tdry"] + 273.15 #K
+
 				
 			# Plot data
-			plt.plot(data["alt"], func(data["alt"], *popt))
-		plt.show()
+			plt.scatter(data["alt"], data["pres"], s=1.5)
+			#plt.plot(self.coreData["ALT_GIN"], func(self.coreData["ALT_GIN"], *popt))
+			plt.scatter(data["alt"], func(data["alt"]), c="r")
+			plt.plot(np.arange(round(data.iloc[0]["alt"]),round(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))),
+				func(np.arange(round(data.iloc[0]["alt"]),round(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])))))
+			plt.show()
 
