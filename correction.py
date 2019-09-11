@@ -1,9 +1,7 @@
 import numpy as np
 from netCDF4 import Dataset
-import scipy
 import matplotlib.pyplot as plt
 import os
-import glob
 import fnmatch
 import pandas as pd
 from dropSonde import Flight
@@ -20,18 +18,21 @@ def sondeFilePaths():
 		fnames[i] = "/".join(fnames[i].split("/")[:-1])
 	fnames = np.unique(fnames)
 	return(fnames)
-
 # Process data
 def processing(flight, plotAlt = False):
+	# All flights where extrapolation went wrong (ie. time at which dropsonde recorded data was before it was dropped)
+	badEggs = ["b898","b980","b984","c085","c087","c088", "c089","c092","c093","c154","c160","c165"]
+	# Dropsonde Main
 	flight.getData()
 	flight.standardizeTime()
 	flight.mergeData()
 	flight.calc_mach()
 	flight.extrapolate()
 	flight.generateDataSet()
-	if plotAlt == True:
-		flight.plotDataTime()
-
+	if flight.errorData["flight"].values[0] in badEggs:
+		flight.errorData = flight.errorData[0:0]
+	# Plot data (will plot for every dropSonde)
+	#flight.plotData()
 # Plot data
 def plotData(errorData):
 	fit = np.polyfit(errorData["mach"], errorData["CPI"], 1)
@@ -43,14 +44,11 @@ def plotData(errorData):
 	ax.set_ylabel("Cpi PS_RVSM-P/Q_RVSM []")
 	ax.set_xlabel("Indicated Mach number []")
 	ax.grid(True)
-	for i, txt in enumerate(errorData["flight"]):
-		ax.annotate(txt, (errorData.iloc[i]["mach"],errorData.iloc[i]["CPI"]))
 	plt.show()
-
 # Main
 def main():
 	errorData = pd.DataFrame()
-	limit = 5
+	limit = 500000
 	for i, filePath in enumerate(sondeFilePaths()):
 		if limit > i:
 			try:
@@ -67,4 +65,5 @@ def main():
 	return(errorData)
 
 plotData(main())
+
 

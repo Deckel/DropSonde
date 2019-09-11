@@ -4,7 +4,6 @@ import scipy
 from scipy import stats
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import axes3d
 import os
 import glob
 import fnmatch
@@ -21,28 +20,17 @@ variablesCore = ["Time", "PS_RVSM", "ALT_GIN", "IAS_RVSM", "TAT_DI_R", "TAS_RVSM
 variablesSonde = ["time","time_offset","pres","alt","tdry"]
 index0 = -1
 
-
-# def func(x,a,b,c,d):
-# 		return a * ((b * (1/c+x)) **d)
-
-
-
-
 def func(h):
 	global P0
 	global H0
 	global T0
-
 	# h0 = 0.0
 	# T0 = 288.15
 	# P0 = 1013.2500
-
 	L0 = -0.0065
 	go = 9.80665
 	M = 0.0289644
 	R = 8.31432	
-	
-	
 	# Calulate pressure from standard atmosphere
 	return(P0*(T0/ (T0 + L0 * (h - H0)))**(go * M / (R * L0)))
 
@@ -140,7 +128,7 @@ class Flight:
 		self.coreData = self.coreData.drop_duplicates()
 		self.coreData.to_csv("coreData")
 
-
+	# Extrapolate the ISA from the first recorded sonde point
 	def extrapolate(self):
 		self.functionsAlt = []
 		self.errors = np.array([])
@@ -148,20 +136,19 @@ class Flight:
 		global P0
 		global H0
 		global T0
-		
 		for i, dropTime in enumerate(self.dropTimes):
 			# Get data set
 			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt").reset_index(drop=True)
 			# Remove weird data point (maybe find true fix later)
 			data = data[0:len(data)-1]
+			data = data.iloc[index0]
 			# Get inital values for ISA curve
-			P0 = data.iloc[index0]["pres"] #hPa
-			H0 = data.iloc[index0]["alt"] #m
-			T0 = data.iloc[index0]["tdry"] + 273.15 #K
-			#Find expected and observed
+			P0 = data["pres"] #hPa
+			H0 = data["alt"] #m
+			T0 = data["tdry"] + 273.15 #K
+			#Find expected and observed and save the difference to an array
 			exp = func(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))
 			obs = np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"])
-
 			self.errors = np.append(self.errors, obs-exp)
 
 	# Calculate indicated mach number
@@ -181,35 +168,38 @@ class Flight:
 				"flight"   :self.filePath.split("/")[6][0:4],
 				"year"     :self.filePath.split("/")[5]}, ignore_index = True)
 			self.errorData = self.errorData.reset_index(drop = True)
-	
-
+			
 	# Graph pressure error as a fucntion of altitude
-	def plotDataAlt(self):
+	def plotData(self):
 		global index0
-		
+		global P0
+		global H0
+		global T0		
 		for i, dropTime in enumerate(self.dropTimes):
-			plt.cla()
-			# Initital pressure at drop
-			plt.axvline(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]), c = "red")
-			plt.axhline(np.average(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"]), c = "red", alpha = 0.5)
-
 			# Get data
 			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt")
 			data = self.coreData[self.coreData["FLAG"] == i].sort_values(by = "alt").reset_index(drop=True)
 			# Remove weird data point (maybe find true fix later)
 			data = data[0:len(data)-1]
-			data = data[index0:len(data)]
-
-			P0 = data.iloc[0]["pres"] #hPa
-			H0 = data.iloc[0]["alt"] #m
-			T0 = data.iloc[0]["tdry"] + 273.15 #K
-
-				
+			data = data.iloc[index0]
+			# Get inital values for ISA curve
+			P0 = data["pres"] #hPa
+			H0 = data["alt"] #m
+			T0 = data["tdry"] + 273.15 #K
 			# Plot data
-			plt.scatter(data["alt"], data["pres"], s=1.5)
-			#plt.plot(self.coreData["ALT_GIN"], func(self.coreData["ALT_GIN"], *popt))
-			plt.scatter(data["alt"], func(data["alt"]), c="r")
-			plt.plot(np.arange(round(data.iloc[0]["alt"]),round(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))),
-				func(np.arange(round(data.iloc[0]["alt"]),round(np.average(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])))))
+			plt.cla()
+			# Initital pressure at drop
+			plt.axvline(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"].values, c = "black", alpha = 0.4)
+			plt.axhline(self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"].values, c = "black", alpha = 0.5)
+			plt.scatter(data["alt"], data["pres"], c="green", label = "Drop sonde", zorder = 10)
+			plt.scatter(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"].values,
+						self.coreData[self.coreData["TIME"] == dropTime]["PS_RVSM"].values, c="red", label = "PS_RVSM", zorder = 11)
+			plt.plot(np.arange(math.floor(data["alt"]), math.ceil(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"])),
+				func(np.arange(math.floor(data["alt"]), math.ceil(self.coreData[self.coreData["TIME"] == dropTime]["ALT_GIN"]))),
+				ls = "--",c="blue", label="Extrapolation")
+			plt.legend(loc = "upper right")
+			plt.ylabel("Static Pressure [hPa]")
+			plt.xlabel("Altitude above geodesic [m]")
+			plt.title("Pressure Altitude extrapolation from a Drop-Sonde ejected from the ARA")
 			plt.show()
 
