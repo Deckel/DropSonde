@@ -1,4 +1,4 @@
-%Drop Sonde Extrapolation
+# Drop Sonde Extrapolation
 This program extrpolates drop sonde data from a BAE-146 Atmospheric Reseach Aircraft.
 
 Data is taken as NETCDF4 format.
